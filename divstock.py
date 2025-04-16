@@ -5,19 +5,18 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 
-st.title("📈 Stock Tracker: Dividend Calendar + EPS + News")
+st.title("📈 Stock Tracker: EPS + Yearly Dividend + News")
 
 # --- Inputs ---
 ticker = st.text_input("Enter Stock Ticker (e.g., RELIANCE, AAPL)", "RELIANCE").upper()
 market = st.radio("Select Market", ["India", "Other"])
 
-# Modify ticker if Indian market is selected
+# Append .NS for Indian stocks
 yf_ticker = ticker + ".NS" if market == "India" else ticker
 
-start_date = st.date_input("Start Date", datetime(2022, 1, 1))
+start_date = st.date_input("Start Date", datetime(2015, 1, 1))
 end_date = st.date_input("End Date", datetime.today())
 
-# --- Logic ---
 if start_date > end_date:
     st.error("Start date must be before end date.")
 elif ticker:
@@ -31,21 +30,29 @@ elif ticker:
         st.subheader(f"📊 EPS for {company_name}")
         st.markdown(f"**EPS:** {eps}")
 
-        # --- Dividend Section ---
-        st.subheader("💰 Dividend Calendar")
+        # --- Dividend Calendar: Year-wise ---
+        st.subheader("💰 Year-wise Dividend Summary")
         dividends = stock.dividends
 
         if not dividends.empty:
-            filtered_dividends = dividends[(dividends.index.date >= start_date) &
-                                           (dividends.index.date <= end_date)]
+            # Filter by date range
+            filtered = dividends[(dividends.index.date >= start_date) &
+                                 (dividends.index.date <= end_date)]
 
-            if not filtered_dividends.empty:
+            if not filtered.empty:
                 df = pd.DataFrame({
-                    "Ex-Date": filtered_dividends.index.date,
-                    "Dividend": filtered_dividends.values
-                }).reset_index(drop=True)
-                st.success(f"Dividends for {yf_ticker} from {start_date} to {end_date}")
-                st.dataframe(df)
+                    "Ex-Date": filtered.index.date,
+                    "Dividend": filtered.values
+                })
+                df["Year"] = pd.to_datetime(df["Ex-Date"]).dt.year
+                yearwise = df.groupby("Year")["Dividend"].sum().reset_index()
+
+                st.success(f"Year-wise dividend for {yf_ticker}")
+                st.dataframe(yearwise)
+
+                # Optional: Show full dividend list below
+                with st.expander("📋 Show Full Dividend Entries"):
+                    st.dataframe(df[["Ex-Date", "Dividend"]])
             else:
                 st.info(f"No dividends for {yf_ticker} in the selected date range.")
         else:
@@ -60,18 +67,12 @@ elif ticker:
             soup = BeautifulSoup(res.text, 'html.parser')
 
             headlines = soup.find_all("h3", class_="Mb(5px)")
-            news_count = 0
-            for h in headlines[:5]:  # Limit to top 5 news items
+            for h in headlines[:5]:  # Show top 5 news
                 a = h.find("a")
                 if a:
                     title = a.text.strip()
                     link = "https://finance.yahoo.com" + a['href']
                     st.markdown(f"- [{title}]({link})")
-                    news_count += 1
-
-            if news_count == 0:
-                st.info("No news articles found.")
-
         except Exception as news_err:
             st.error(f"Failed to fetch news: {news_err}")
 
