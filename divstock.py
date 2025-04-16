@@ -62,8 +62,15 @@ elif ticker:
                         last_price = None
                     close_prices.append(last_price)
 
-                yearwise_dividend["Year End Price"] = close_prices
-                yearwise_dividend["Dividend Yield %"] = (yearwise_dividend["Dividend"] / yearwise_dividend["Year End Price"]) * 100
+                # Clean up close prices to only float values
+                clean_prices = [float(p) if p is not None else None for p in close_prices]
+                yearwise_dividend["Year End Price"] = clean_prices
+                
+                # Calculate clean dividend yield %
+                yearwise_dividend["Dividend Yield %"] = yearwise_dividend.apply(
+                    lambda row: round((row["Dividend"] / row["Year End Price"]) * 100, 2) if row["Year End Price"] else None,
+                    axis=1
+                )
                 yearwise_dividend = yearwise_dividend.round(2)
 
                 st.success(f"Year-wise dividend + return for {yf_ticker}")
