@@ -1,105 +1,114 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 
-st.title("📈 Stock Tracker: EPS + Yearly Dividend + Return % + News")
+# Page setup
+st.set_page_config(page_title="Dividend Calendar + Return Tracker", layout="wide")
+st.title("💰 Year-wise Dividend Summary + Return %")
 
 # --- Inputs ---
-ticker = st.text_input("Enter Stock Ticker (e.g., RELIANCE, AAPL)", "RELIANCE").upper()
+ticker_input = st.text_input("Enter Stock Ticker (e.g., RELIANCE, AAPL)", "RELIANCE").upper()
 market = st.radio("Select Market", ["India", "Other"])
+ticker = ticker_input + ".NS" if market == "India" else ticker_input
 
-# Append .NS for Indian stocks
-yf_ticker = ticker + ".NS" if market == "India" else ticker
-
-start_date = st.date_input("Start Date", datetime(2015, 1, 1))
+start_date = st.date_input("Start Date", datetime(2021, 1, 1))
 end_date = st.date_input("End Date", datetime.today())
 
+# --- Validation ---
 if start_date > end_date:
     st.error("Start date must be before end date.")
-elif ticker:
+else:
     try:
-        stock = yf.Ticker(yf_ticker)
-        info = stock.info
-
-        # --- EPS Section ---
-        eps = info.get("trailingEps") or info.get("forwardEps", "N/A")
-        company_name = info.get("shortName", ticker)
-        st.subheader(f"📊 EPS for {company_name}")
-        st.markdown(f"**EPS:** {eps}")
-
-        # --- Dividend Calendar ---
-        st.subheader("💰 Year-wise Dividend Summary + Return %")
+        stock = yf.Ticker(ticker)
         dividends = stock.dividends
 
-        if not dividends.empty:
-            # Filter by date range
-            filtered = dividends[(dividends.index.date >= start_date) &
-                                 (dividends.index.date <= end_date)]
-
-            if not filtered.empty:
-                df = pd.DataFrame({
-                    "Ex-Date": filtered.index.date,
-                    "Dividend": filtered.values
-                })
-                df["Year"] = pd.to_datetime(df["Ex-Date"]).dt.year
-                yearwise_dividend = df.groupby("Year")["Dividend"].sum().reset_index()
-
-                # Get closing prices on last trading day of each year
-                years = yearwise_dividend["Year"].tolist()
-                close_prices = []
-                for y in years:
-                    try:
-                        price_data = yf.download(yf_ticker, start=f"{y}-12-20", end=f"{y+1}-01-10")
-                        price_data = price_data[price_data["Close"].notnull()]
-                        if not price_data.empty:
-                            last_price = price_data["Close"].iloc[-1]
-                        else:
-                            last_price = None
-                    except:
-                        last_price = None
-                    close_prices.append(last_price)
-
-                # Clean up close prices to only float values
-                clean_prices = [float(p) if p is not None else None for p in close_prices]
-                yearwise_dividend["Year End Price"] = clean_prices
-                
-                # Calculate clean dividend yield %
-                yearwise_dividend["Dividend Yield %"] = yearwise_dividend.apply(
-                    lambda row: round((row["Dividend"] / row["Year End Price"]) * 100, 2) if row["Year End Price"] else None,
-                    axis=1
-                )
-                yearwise_dividend = yearwise_dividend.round(2)
-
-                st.success(f"Year-wise dividend + return for {yf_ticker}")
-                st.dataframe(yearwise_dividend)
-
-                with st.expander("📋 Show Full Dividend Entries"):
-                    st.dataframe(df[["Ex-Date", "Dividend"]])
-            else:
-                st.info(f"No dividends for {yf_ticker} in the selected date range.")
+        if dividends.empty:
+            st.warning(f"No dividend data available for {ticker}.")
         else:
-            st.warning(f"No dividend data available for {yf_ticker}.")
+            # Filter dividends by date
+            filtered_dividends = dividends[(dividends.index.date >= start_date) &
+                                           (dividends.index.date <= end_date)]
 
-        # --- News Section ---
-        st.subheader("📰 Latest News")
-        try:
-            yahoo_url = f"https://finance.yahoo.com/quote/{yf_ticker}?p={yf_ticker}"
-            headers = {"User-Agent": "Mozilla/5.0"}
-            res = requests.get(yahoo_url, headers=headers)
-            soup = BeautifulSoup(res.text, 'html.parser')
+            if filtered_dividends.empty:
+                st.info("No dividends in selected date range.")
+            else:
+                # Year-wise dividend
+                dividends_df = filtered_dividends.reset_index()
+                dividends_df["Year"] = dividends_df["Date"].dt.year
+                yearwise_div = dividends_df.groupby("Year")["Dividends"].sum().reset_index()
 
-            headlines = soup.find_all("h3", class_="Mb(5px)")
-            for h in headlines[:5]:
-                a = h.find("a")
-                if a:
-                    title = a.text.strip()
-                    link = "https://finance.yahoo.com" + a['href']
-                    st.markdown(f"- [{title}]({link})")
-        except Exception as news_err:
-            st.error(f"Failed to fetch news: {news_err}")
+                # Get year-end price
+                prices = stock.history(start=start_date, end=end_date)
+                prices["Year"] = prices.index.year
+                year_end_prices = prices.groupby("Year")["Close"].last().reset_index()
 
+                # Merge and calculate yield
+                summary = pd.merge(yearwise_div, year_end_prices, on="Year", how="left")
+                summary.columns = ["Year", "Dividend", "Year End Price"]
+                summary["Dividend Yield %"] = (summary["Dividend"] / summary["Year End Price"]) * 100
+                summary = summary.round(2)
+
+                st.success(f"Year-wise dividend + return for {ticker}")
+                st.dataframe(summary)
+
+                # Expandable to show full dividend events
+                with st.expander("📋 Show Full Dividend Entries"):
+                    st.dataframe(dividends_df[["Date", "Dividends"]])
+
+                # --- Client Transaction-Based Return ---
+                st.markdown("---")
+                st.subheader("📥 Dividend Return Since Your Purchase Date")
+                transaction_date = st.date_input("Enter your stock purchase date")
+
+                if start_date <= transaction_date <= end_date:
+                    hist_price = stock.history(start=transaction_date, end=transaction_date + pd.Timedelta(days=5))
+                    if not hist_price.empty:
+                        txn_price = hist_price["Close"].iloc[0]
+                        dividends_since_txn = dividends[dividends.index.date >= transaction_date]
+                        total_dividend = dividends_since_txn.sum()
+                        return_pct = (total_dividend / txn_price) * 100
+
+                        st.success(f"🧾 From {transaction_date} to {end_date}:")
+                        st.write(f"• Total Dividends Received: ₹{round(total_dividend, 2)}")
+                        st.write(f"• Purchase Price: ₹{round(txn_price, 2)}")
+                        st.write(f"• 📊 Return from Dividends: **{round(return_pct, 2)}%**")
+
+                        st.markdown("### 🧾 Dividend Events Since Purchase")
+                        st.dataframe(dividends_since_txn)
+
+                    else:
+                        st.warning("No price data found for the transaction date. Try a nearby date.")
+                else:
+                    st.info("Pick a transaction date within the selected date range.")
+
+                # --- EPS Data (TTM) ---
+                st.markdown("---")
+                st.subheader("🧮 Earnings per Share (EPS)")
+                info = stock.info
+                if "trailingEps" in info:
+                    eps = info["trailingEps"]
+                    st.success(f"Trailing EPS: ₹{eps}")
+                else:
+                    st.warning("EPS data not available.")
+
+                # --- News Section ---
+                st.markdown("---")
+                st.subheader("📰 Latest News")
+                try:
+                    news_url = f"https://finance.yahoo.com/quote/{ticker}"
+                    headers = {"User-Agent": "Mozilla/5.0"}
+                    response = requests.get(news_url, headers=headers)
+                    soup = BeautifulSoup(response.text, "html.parser")
+
+                    headlines = soup.find_all("h3", limit=5)
+                    for h in headlines:
+                        link = h.find("a")
+                        if link and link.text:
+                            st.markdown(f"🔹 [{link.text}](https://finance.yahoo.com{link['href']})")
+                except Exception as e:
+                    st.error(f"Could not fetch news: {e}")
     except Exception as e:
         st.error(f"Error fetching data: {e}")
