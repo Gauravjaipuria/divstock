@@ -170,9 +170,11 @@ else:
             results_df = pd.DataFrame(results)
             st.dataframe(results_df)
 
-            total_dividends = results_df[results_df["Total Dividend"].apply(lambda x: isinstance(x, (int, float)))]
-["Total Dividend"].sum()
+            # Calculate total dividend received (ignoring "You sold..." cases)
+            numeric_divs = results_df[results_df["Total Dividend"].apply(lambda x: isinstance(x, (int, float)))]
+            total_dividends = numeric_divs["Total Dividend"].sum()
             st.success(f"💸 Total Dividend Received from All Buy Transactions: ₹{round(total_dividends, 2)}")
+
 
             # --- Download Option ---
             st.markdown("### 📥 Download Report")
