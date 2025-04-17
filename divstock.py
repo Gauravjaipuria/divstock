@@ -90,9 +90,11 @@ else:
         transactions = []
         if uploaded_file is not None:
             try:
-                excel_df = pd.read_excel(uploaded_file)
+                excel_df = pd.read_excel(uploaded_file, engine='openpyxl')
+                excel_df.columns = excel_df.columns.str.strip().str.title()
                 required_cols = {"Date", "Quantity", "Price", "Type"}
                 if required_cols.issubset(set(excel_df.columns)):
+                    excel_df["Date"] = pd.to_datetime(excel_df["Date"])
                     transactions = excel_df.to_dict(orient="records")
                     st.success("Excel file successfully loaded!")
                 else:
@@ -130,13 +132,15 @@ else:
         if all_transactions:
             st.markdown("### 📃 Your Transactions")
             txn_df = pd.DataFrame(all_transactions)
+            total_qty = txn_df.apply(lambda x: x["Quantity"] if x["Type"] == "Buy" else -x["Quantity"], axis=1).sum()
+            st.write(f"**Total Quantity Held:** {total_qty}")
             st.dataframe(txn_df)
 
             # Calculate total dividend per transaction
             results = []
             for txn in all_transactions:
                 txn_date = txn["Date"]
-                qty = txn["Quantity"] if txn["Type"] == "Buy" else -txn["Quantity"]
+                qty = txn["Quantity"] if txn["Type"] == "Buy" else 0  # Ignore sells for dividend
                 price = txn["Price"]
 
                 try:
@@ -147,21 +151,23 @@ else:
 
                 dividends_after = dividends[dividends.index.date >= pd.to_datetime(txn_date).date()]
                 total_div = round(dividends_after.sum() * qty, 2)
-                return_pct = round((dividends_after.sum() / txn_price) * 100, 2)
+                return_pct = round((dividends_after.sum() / txn_price) * 100, 2) if qty > 0 else 0
+
+                result_msg = total_div if qty > 0 else "You sold the shares — No dividend received."
 
                 results.append({
                     "Transaction Date": txn_date,
-                    "Quantity": qty,
+                    "Quantity": qty if qty > 0 else f"-{txn['Quantity']}",
                     "Price/Share": round(txn_price, 2),
-                    "Total Dividend": total_div,
-                    "Dividend Return %": return_pct
+                    "Total Dividend": result_msg,
+                    "Dividend Return %": return_pct if qty > 0 else "-"
                 })
 
             results_df = pd.DataFrame(results)
             st.dataframe(results_df)
 
-            total_dividends = results_df["Total Dividend"].sum()
-            st.success(f"💸 Total Dividend Received from All Transactions: ₹{round(total_dividends, 2)}")
+            total_dividends = results_df[results_df["Total Dividend"].apply(lambda x: isinstance(x, (int, float)))]["Total Dividend"].sum()
+            st.success(f"💸 Total Dividend Received from All Buy Transactions: ₹{round(total_dividends, 2)}")
 
             # --- Download Option ---
             st.markdown("### 📥 Download Report")
