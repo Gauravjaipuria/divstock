@@ -139,6 +139,9 @@ else:
 
             # Calculate total dividend per transaction
             results = []
+            dividends_naive = dividends.copy()
+            dividends_naive.index = dividends_naive.index.tz_localize(None)
+
             for txn in all_transactions:
                 txn_date = txn["Date"]
                 qty = txn["Quantity"] if txn["Type"] == "Buy" else 0  # Ignore sells for dividend
@@ -150,9 +153,9 @@ else:
                 except:
                     txn_price = price
 
-                dividends_after = dividends[dividends.index.date >= pd.to_datetime(txn_date).date()]
-                total_div = round(dividends_after.sum() * qty, 2)
-                return_pct = round((dividends_after.sum() / txn_price) * 100, 2) if qty > 0 else 0
+                dividends_after = dividends_naive[dividends_naive.index >= pd.to_datetime(txn_date)]
+                total_div = round(dividends_after.sum() * qty, 2) if qty > 0 else 0
+                return_pct = round((dividends_after.sum() / txn_price) * 100, 2) if qty > 0 else "-"
 
                 result_msg = total_div if qty > 0 else "You sold the shares — No dividend received."
 
@@ -161,13 +164,13 @@ else:
                     "Quantity": qty if qty > 0 else f"-{txn['Quantity']}",
                     "Price/Share": round(txn_price, 2),
                     "Total Dividend": result_msg,
-                    "Dividend Return %": return_pct if qty > 0 else "-"
+                    "Dividend Return %": return_pct
                 })
 
             results_df = pd.DataFrame(results)
             st.dataframe(results_df)
 
-            total_dividends = results_df[results_df["Total Dividend"].apply(lambda x: isinstance(x, (int, float)))]\
+            total_dividends = results_df[results_df["Total Dividend"].apply(lambda x: isinstance(x, (int, float)))]
 ["Total Dividend"].sum()
             st.success(f"💸 Total Dividend Received from All Buy Transactions: ₹{round(total_dividends, 2)}")
 
