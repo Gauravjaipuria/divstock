@@ -24,7 +24,8 @@ if start_date > end_date:
 else:
     try:
         stock = yf.Ticker(ticker)
-        dividends = stock.dividends
+        dividends = stock.dividends[(stock.dividends.index >= pd.to_datetime(start_date)) & 
+                                     (stock.dividends.index <= pd.to_datetime(end_date))]
         price_data = stock.history(start=start_date, end=end_date)
 
         if not dividends.empty:
@@ -166,7 +167,8 @@ else:
             results_df = pd.DataFrame(results)
             st.dataframe(results_df)
 
-            total_dividends = results_df[results_df["Total Dividend"].apply(lambda x: isinstance(x, (int, float)))]["Total Dividend"].sum()
+            total_dividends = results_df[results_df["Total Dividend"].apply(lambda x: isinstance(x, (int, float)))]\
+["Total Dividend"].sum()
             st.success(f"💸 Total Dividend Received from All Buy Transactions: ₹{round(total_dividends, 2)}")
 
             # --- Download Option ---
